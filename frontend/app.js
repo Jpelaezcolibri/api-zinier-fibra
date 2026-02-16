@@ -9,8 +9,8 @@ const resultsSection = document.getElementById('results-section');
 const errorMessage = document.getElementById('error-message');
 
 // CONFIGURACIÓN API
-// IMPORTANTE: URL Pública para pruebas móviles (localtunnel)
-let API_URL = "https://sweet-wings-learn.loca.lt/api/analyze";
+// URL de Producción (Render) - Funciona siempre, 24/7
+let API_URL = "https://api-zinier-fibra.onrender.com/api/analyze";
 
 // Manejo de Archivos
 dropZone.addEventListener('click', () => fileInput.click());
