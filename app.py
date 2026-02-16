@@ -12,7 +12,8 @@ from PIL import Image, ImageEnhance
 load_dotenv()
 
 N8N_WEBHOOK_URL = os.getenv("N8N_WEBHOOK_URL", "")
-API_PORT = int(os.getenv("API_PORT", "8001"))
+# Render usa la variable 'PORT', no 'API_PORT'
+API_PORT = int(os.getenv("PORT", "8001"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api_imagen_n8n")
@@ -23,6 +24,20 @@ app = FastAPI(
     description="Recibe imagen, mejora iluminación, y reenvía a n8n.",
     version="2.1.0",
 )
+
+# Capturar cualquier error 500 y mostrarlo
+from fastapi import Request
+from fastapi.responses import JSONResponse
+import traceback
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    error_msg = "".join(traceback.format_exception(None, exc, exc.__traceback__))
+    logger.error(f"CRITICAL ERROR: {error_msg}")
+    return JSONResponse(
+        status_code=500,
+        content={"detail": "Internal Server Error", "trace": error_msg},
+    )
 
 # ── Middleware CORS (Vital para Netlify/Frontend) ───────────────────────────
 app.add_middleware(
