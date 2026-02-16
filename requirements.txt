@@ -4,4 +4,3 @@ python-multipart
 httpx
 python-dotenv
 Pillow
-gunicorn
