@@ -75,38 +75,53 @@ def enhance_image(image_bytes):
         return image_bytes, 'JPEG' # Devolver original si falla
 
 # ── Endpoints ───────────────────────────────────────────────────────────────
+# ── Models ────────────────────────────────────────────────────────────────────
+from pydantic import BaseModel
+
+class ImageInput(BaseModel):
+    image: str
+
+# ── Endpoints ───────────────────────────────────────────────────────────────
 @app.get("/")
 async def root():
-    return {"status": "ok", "message": "API Activa y Mejorada. Use POST /api/analyze"}
+    return {"status": "ok", "message": "API Activa y Mejorada (JSON Support). Use POST /api/analyze"}
 
 @app.post("/api/analyze")
 async def analyze_image(
-    image: UploadFile = File(..., description="Imagen del sitio (binario)"),
+    data: ImageInput,
 ):
     """
-    1. Recibe imagen.
-    2. Mejora iluminación (Pre-procesamiento).
-    3. Envía a n8n.
+    1. Recibe URL de imagen en JSON.
+    2. Descarga la imagen.
+    3. Mejor iluminación (Pre-procesamiento).
+    4. Envía a n8n.
     """
     
     # Validar webhook
     if not N8N_WEBHOOK_URL:
         raise HTTPException(503, "Webhook no configurado en .env (N8N_WEBHOOK_URL)")
 
-    # Validar archivo
-    allowed = {"image/jpeg", "image/png", "image/webp"}
-    if image.content_type not in allowed:
-        raise HTTPException(400, f"Formato {image.content_type} no válido. Use JPG/PNG/WEBP.")
-        
-    # Leer contenido
-    content = await image.read()
-    
+    image_url = data.image
+    logger.info(f"Procesando URL: {image_url}")
+
+    # Descargar imagen
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            resp_img = await client.get(image_url)
+            resp_img.raise_for_status()
+            content = resp_img.content
+            content_type = resp_img.headers.get("content-type", "image/jpeg")
+    except Exception as e:
+        logger.error(f"Error descargando imagen: {e}")
+        raise HTTPException(400, f"No se pudo descargar la imagen: {str(e)}")
+
     # MEJORAR IMAGEN (Soluciona problema de iluminación)
     enhanced_content, fmt = enhance_image(content)
     logger.info(f"Imagen procesada ({len(content)} -> {len(enhanced_content)} bytes)")
     
     # Preparar para n8n
-    filename = image.filename or f"upload.{fmt.lower()}"
+    # Usamos un nombre genérico o derivado de la URL si es posible, pero simple
+    filename = f"downloaded_image.{fmt.lower()}"
     mime = f"image/{fmt.lower()}"
     
     # n8n espera el archivo en un campo multipart. Usaremos 'data'.
