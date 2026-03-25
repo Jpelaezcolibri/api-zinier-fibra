@@ -101,7 +101,7 @@ async def analyze_image(data: ImageInput):
     try:
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
-            model="claude-sonnet-4-5-20251001",
+            model="claude-3-5-sonnet-20241022",
             max_tokens=1024,
             messages=[
                 {
