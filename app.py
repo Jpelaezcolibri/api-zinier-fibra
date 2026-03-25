@@ -8,26 +8,23 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-import google.generativeai as genai
+import anthropic
 import traceback
 import json
 
 # ── Config ──────────────────────────────────────────────────────────────────
 load_dotenv()
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY", "")
 API_PORT = int(os.getenv("PORT", "8001"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("api_fibra_optica")
 
-if GEMINI_API_KEY:
-    genai.configure(api_key=GEMINI_API_KEY)
-
 # ── App ─────────────────────────────────────────────────────────────────────
 app = FastAPI(
     title="API Fibra Óptica v3.0",
-    description="Recibe URL de imagen y la analiza con Gemini directamente.",
+    description="Recibe URL de imagen y la analiza con Claude.",
     version="3.0.0",
 )
 
@@ -79,8 +76,8 @@ async def analyze_image(data: ImageInput):
     Recibe: {"image": "https://cualquier-url-publica/imagen.jpg"}
     Devuelve: JSON con análisis de puertos de fibra óptica.
     """
-    if not GEMINI_API_KEY:
-        raise HTTPException(503, "GEMINI_API_KEY no configurado.")
+    if not ANTHROPIC_API_KEY:
+        raise HTTPException(503, "ANTHROPIC_API_KEY no configurado.")
 
     image_url = data.image
     logger.info(f"Analizando imagen: {image_url}")
@@ -92,29 +89,47 @@ async def analyze_image(data: ImageInput):
             img_response.raise_for_status()
             image_bytes = img_response.content
             content_type = img_response.headers.get("content-type", "image/jpeg").split(";")[0]
+            # Claude solo acepta estos tipos
+            if content_type not in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+                content_type = "image/jpeg"
     except httpx.TimeoutException:
         raise HTTPException(504, "Timeout descargando la imagen.")
     except Exception as e:
         raise HTTPException(400, f"No se pudo descargar la imagen: {str(e)}")
 
-    # Llamar a Gemini
+    # Llamar a Claude
     try:
-        model = genai.GenerativeModel("gemini-1.5-flash")
-        image_part = {
-            "inline_data": {
-                "mime_type": content_type,
-                "data": base64.b64encode(image_bytes).decode("utf-8")
-            }
-        }
-        response = model.generate_content([ANALYSIS_PROMPT, image_part])
-        raw_text = response.text.strip()
-        logger.info(f"Respuesta Gemini: {raw_text}")
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        message = client.messages.create(
+            model="claude-sonnet-4-5-20251001",
+            max_tokens=1024,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image",
+                            "source": {
+                                "type": "base64",
+                                "media_type": content_type,
+                                "data": base64.b64encode(image_bytes).decode("utf-8"),
+                            },
+                        },
+                        {
+                            "type": "text",
+                            "text": ANALYSIS_PROMPT
+                        }
+                    ],
+                }
+            ],
+        )
+        raw_text = message.content[0].text.strip()
+        logger.info(f"Respuesta Claude: {raw_text}")
     except Exception as e:
-        raise HTTPException(502, f"Error en Gemini: {str(e)}")
+        raise HTTPException(502, f"Error en Claude: {str(e)}")
 
     # Parsear JSON
     try:
-        # Limpiar posible markdown
         if raw_text.startswith("```"):
             raw_text = raw_text.split("```")[1]
             if raw_text.startswith("json"):
