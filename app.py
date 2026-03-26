@@ -48,15 +48,22 @@ class ImageInput(BaseModel):
     image: str
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
-ANALYSIS_PROMPT = """Eres un experto en redes de fibra óptica. Analiza esta imagen de un nodo ATP y detecta el estado de los puertos.
+ANALYSIS_PROMPT = """Eres un experto en redes de fibra óptica. Analiza esta imagen de un nodo ATP (caja de distribución de fibra óptica) y detecta con precisión el estado de cada puerto.
+
+CRITERIOS IMPORTANTES para identificar el estado de los puertos:
+- Puerto OCUPADO: tiene un conector SC/APC insertado (generalmente verde brillante, con cable de fibra saliendo). El conector tiene forma cilíndrica con un cable conectado.
+- Puerto DISPONIBLE: está vacío (sin nada) o tiene solo una tapa protectora pequeña (cap de plástico sin cable). Las tapas protectoras NO tienen cable saliendo.
+- Cuenta los puertos de izquierda a derecha, comenzando desde el 1.
+- Si ves números impresos en la caja, úsalos para identificar cada puerto.
+- Sé conservador: si no puedes determinar con certeza el estado de un puerto, indícalo en observaciones.
 
 Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta (sin markdown, sin explicaciones):
 {
-  "total_ports": <número total de puertos visibles>,
-  "available_ports": [<lista de números de puertos libres/disponibles>],
-  "occupied_ports": [<lista de números de puertos ocupados/conectados>],
-  "technical_reference": "<referencia técnica o etiqueta del equipo si es visible, sino null>",
-  "observations": "<observaciones relevantes sobre el estado del nodo>"
+  "total_ports": <número total de puertos visibles en la caja>,
+  "available_ports": [<lista de números de puertos vacíos o con tapa sin cable>],
+  "occupied_ports": [<lista de números de puertos con conector SC/APC y cable activo>],
+  "technical_reference": "<código o etiqueta del nodo visible en la caja, sino null>",
+  "observations": "<descripción del estado general, colores observados, dudas sobre puertos específicos>"
 }
 
 Si no puedes determinar un valor con certeza, usa null para strings y [] para listas."""
