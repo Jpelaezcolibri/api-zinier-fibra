@@ -49,16 +49,15 @@ class ImageInput(BaseModel):
     image: str
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
-ANALYSIS_PROMPT = """Eres un experto en redes de fibra óptica analizando un nodo ATP.
+ANALYSIS_PROMPT = """Analiza esta imagen de un nodo ATP de fibra óptica y determina el estado de cada puerto.
 
-DIFERENCIA CLAVE entre los dos elementos verdes que verás:
-- TAPA PROTECTORA (DISPONIBLE): pieza de plástico verde sólida, cuadrada, sin ningún cable. Solo tapa el puerto.
-- CONECTOR SC/APC ACTIVO (OCUPADO): tiene un cable de fibra delgado (1-2mm, colores: amarillo, azul, naranja) entrando por detrás. Si ves cable → OCUPADO.
+CÓMO IDENTIFICAR CADA PUERTO:
+- OCUPADO: tiene un cable de fibra óptica (delgado, coloreado) entrando por detrás del conector verde. El conector puede sobresalir ligeramente y tiene una fibra conectada.
+- DISPONIBLE: tiene solo una tapa de plástico verde sin cable alguno.
 
-REGLA: Solo marca OCUPADO si claramente ves un cable conectado. En duda → DISPONIBLE.
+Examina cuidadosamente cada puerto individualmente. Numera de izquierda a derecha desde el 1.
 
-Piensa en voz alta sobre cada puerto, luego al final escribe el resultado entre estas etiquetas exactas:
-
+Responde ÚNICAMENTE con este JSON exacto:
 <resultado>
 {"total_ports": X, "available_ports": [lista], "occupied_ports": [lista]}
 </resultado>"""
@@ -104,7 +103,11 @@ async def analyze_image(data: ImageInput):
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=4096,
+            max_tokens=8000,
+            thinking={
+                "type": "enabled",
+                "budget_tokens": 4000
+            },
             messages=[
                 {
                     "role": "user",
@@ -125,7 +128,12 @@ async def analyze_image(data: ImageInput):
                 }
             ],
         )
-        raw_text = message.content[0].text.strip()
+        # Extraer bloque de texto (ignorar bloque de thinking)
+        raw_text = ""
+        for block in message.content:
+            if block.type == "text":
+                raw_text = block.text.strip()
+                break
         logger.info(f"Respuesta Claude: {raw_text}")
     except Exception as e:
         raise HTTPException(502, f"Error en Claude: {str(e)}")
