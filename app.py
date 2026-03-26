@@ -49,29 +49,41 @@ class ImageInput(BaseModel):
     image: str
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
-ANALYSIS_PROMPT = """Eres un experto en redes de fibra óptica. Analiza esta imagen de un nodo ATP (caja de distribución de fibra óptica).
+ANALYSIS_PROMPT = """Eres un experto en redes de fibra óptica analizando una imagen de un nodo ATP (caja de distribución de fibra).
+
+CONTEXTO CRÍTICO - cómo se ven los puertos:
+Los nodos ATP tienen dos tipos de elementos verdes que PARECEN similares pero son muy distintos:
+
+1. TAPA PROTECTORA (puerto DISPONIBLE):
+   - Pieza de plástico verde SÓLIDA, cuadrada o rectangular
+   - NO tiene ningún cable saliendo
+   - Es completamente plana/maciza por delante
+   - Se encaja dentro del adaptador como un capuchón ciego
+
+2. CONECTOR SC/APC ACTIVO (puerto OCUPADO):
+   - Tiene un cable de fibra óptica (pigtail) que ENTRA por la parte trasera/lateral
+   - El cable es delgado (1-2mm) con revestimiento de colores (amarillo, azul, naranja, blanco, etc.)
+   - Se puede ver el cable ANTES de entrar al conector
+   - La diferencia visual: tiene un cable conectado a él
 
 FASE 1 - INVENTARIO:
-Describe brevemente el tipo de caja, cuántos puertos totales ves, y el código/etiqueta visible en la etiqueta adhesiva.
+Describe brevemente la caja, total de puertos visibles y etiqueta/código.
 
 FASE 2 - ANÁLISIS PUERTO POR PUERTO:
-Examina cada puerto de izquierda a derecha (del 1 al N). Para CADA puerto escribe una línea:
-Puerto X: [describe qué ves físicamente] → OCUPADO / DISPONIBLE
+Para cada puerto de izquierda a derecha, escribe:
+Puerto X: [¿Ves algún cable conectado a él? Describe color y forma de lo que ves] → OCUPADO / DISPONIBLE
 
-Reglas de clasificación:
-- OCUPADO = conector SC/APC verde cilíndrico CON un cable de fibra óptica saliendo de él
-- DISPONIBLE = tapa protectora de plástico pequeña SIN cable, o puerto completamente vacío
-- DIFERENCIA CLAVE: si ves un cable (hilo delgado) conectado al conector verde = OCUPADO. Si solo hay un capuchón verde sin ningún cable = DISPONIBLE.
+IMPORTANTE: La mayoría de puertos en campo tienen TAPAS PROTECTORAS. Solo clasifica como OCUPADO si claramente ves un cable de fibra conectado. En caso de duda → DISPONIBLE.
 
 FASE 3 - JSON:
-Basándote en tu análisis anterior, devuelve el resultado EXACTAMENTE dentro de estas etiquetas:
+Basándote SOLO en los puertos donde viste cable conectado, devuelve:
 <json>
 {
-  "total_ports": <número total de puertos en la caja>,
-  "available_ports": [<números de puertos DISPONIBLES>],
-  "occupied_ports": [<números de puertos OCUPADOS con cable activo>],
-  "technical_reference": "<código de la etiqueta del nodo, o null>",
-  "observations": "<resumen del estado general del nodo>"
+  "total_ports": <total de puertos en la caja>,
+  "available_ports": [<puertos SIN cable: tapas protectoras o vacíos>],
+  "occupied_ports": [<puertos CON cable de fibra visible conectado>],
+  "technical_reference": "<código de etiqueta del nodo, o null>",
+  "observations": "<descripción de lo que viste en cada puerto que clasificaste como ocupado>"
 }
 </json>"""
 
