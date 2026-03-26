@@ -11,6 +11,7 @@ from pydantic import BaseModel
 import anthropic
 import traceback
 import json
+import re
 
 # ── Config ──────────────────────────────────────────────────────────────────
 load_dotenv()
@@ -48,25 +49,31 @@ class ImageInput(BaseModel):
     image: str
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
-ANALYSIS_PROMPT = """Eres un experto en redes de fibra óptica. Analiza esta imagen de un nodo ATP (caja de distribución de fibra óptica) y detecta con precisión el estado de cada puerto.
+ANALYSIS_PROMPT = """Eres un experto en redes de fibra óptica. Analiza esta imagen de un nodo ATP (caja de distribución de fibra óptica).
 
-CRITERIOS IMPORTANTES para identificar el estado de los puertos:
-- Puerto OCUPADO: tiene un conector SC/APC insertado (generalmente verde brillante, con cable de fibra saliendo). El conector tiene forma cilíndrica con un cable conectado.
-- Puerto DISPONIBLE: está vacío (sin nada) o tiene solo una tapa protectora pequeña (cap de plástico sin cable). Las tapas protectoras NO tienen cable saliendo.
-- Cuenta los puertos de izquierda a derecha, comenzando desde el 1.
-- Si ves números impresos en la caja, úsalos para identificar cada puerto.
-- Sé conservador: si no puedes determinar con certeza el estado de un puerto, indícalo en observaciones.
+FASE 1 - INVENTARIO:
+Describe brevemente el tipo de caja, cuántos puertos totales ves, y el código/etiqueta visible en la etiqueta adhesiva.
 
-Devuelve ÚNICAMENTE un JSON válido con esta estructura exacta (sin markdown, sin explicaciones):
+FASE 2 - ANÁLISIS PUERTO POR PUERTO:
+Examina cada puerto de izquierda a derecha (del 1 al N). Para CADA puerto escribe una línea:
+Puerto X: [describe qué ves físicamente] → OCUPADO / DISPONIBLE
+
+Reglas de clasificación:
+- OCUPADO = conector SC/APC verde cilíndrico CON un cable de fibra óptica saliendo de él
+- DISPONIBLE = tapa protectora de plástico pequeña SIN cable, o puerto completamente vacío
+- DIFERENCIA CLAVE: si ves un cable (hilo delgado) conectado al conector verde = OCUPADO. Si solo hay un capuchón verde sin ningún cable = DISPONIBLE.
+
+FASE 3 - JSON:
+Basándote en tu análisis anterior, devuelve el resultado EXACTAMENTE dentro de estas etiquetas:
+<json>
 {
-  "total_ports": <número total de puertos visibles en la caja>,
-  "available_ports": [<lista de números de puertos vacíos o con tapa sin cable>],
-  "occupied_ports": [<lista de números de puertos con conector SC/APC y cable activo>],
-  "technical_reference": "<código o etiqueta del nodo visible en la caja, sino null>",
-  "observations": "<descripción del estado general, colores observados, dudas sobre puertos específicos>"
+  "total_ports": <número total de puertos en la caja>,
+  "available_ports": [<números de puertos DISPONIBLES>],
+  "occupied_ports": [<números de puertos OCUPADOS con cable activo>],
+  "technical_reference": "<código de la etiqueta del nodo, o null>",
+  "observations": "<resumen del estado general del nodo>"
 }
-
-Si no puedes determinar un valor con certeza, usa null para strings y [] para listas."""
+</json>"""
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 @app.get("/")
@@ -109,7 +116,7 @@ async def analyze_image(data: ImageInput):
         client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=1024,
+            max_tokens=4096,
             messages=[
                 {
                     "role": "user",
@@ -137,11 +144,18 @@ async def analyze_image(data: ImageInput):
 
     # Parsear JSON
     try:
-        if raw_text.startswith("```"):
-            raw_text = raw_text.split("```")[1]
-            if raw_text.startswith("json"):
-                raw_text = raw_text[4:]
-        result = json.loads(raw_text.strip())
+        # Buscar JSON dentro de <json>...</json>
+        json_match = re.search(r'<json>\s*(.*?)\s*</json>', raw_text, re.DOTALL)
+        if json_match:
+            result = json.loads(json_match.group(1))
+        else:
+            # Fallback: limpiar markdown y parsear directamente
+            cleaned = raw_text
+            if cleaned.startswith("```"):
+                cleaned = cleaned.split("```")[1]
+                if cleaned.startswith("json"):
+                    cleaned = cleaned[4:]
+            result = json.loads(cleaned.strip())
         return result
     except json.JSONDecodeError:
         return {"raw_response": raw_text}
