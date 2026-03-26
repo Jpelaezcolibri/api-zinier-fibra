@@ -57,6 +57,21 @@ app.add_middleware(
 class ImageInput(BaseModel):
     image: str
 
+def format_result(data: dict, source: str = None) -> dict:
+    """Agrega conteos al resultado y ordena los campos."""
+    occupied = data.get("occupied_ports", [])
+    available = data.get("available_ports", [])
+    result = {
+        "total_ports": data.get("total_ports", 0),
+        "occupied_count": len(occupied),
+        "occupied_ports": sorted(occupied),
+        "available_count": len(available),
+        "available_ports": sorted(available),
+    }
+    if source:
+        result["_source"] = source
+    return result
+
 class FeedbackInput(BaseModel):
     image_url: str
     correct_result: dict
@@ -146,7 +161,7 @@ async def analyze_image(data: ImageInput):
     known = check_known_image(image_url)
     if known:
         logger.info(f"Imagen ya corregida, devolviendo memoria: {known}")
-        return {**known, "_source": "memory"}
+        return format_result(known, source="memory")
 
     # 2. Descargar imagen
     try:
@@ -193,7 +208,7 @@ async def analyze_image(data: ImageInput):
     try:
         match = re.search(r'\{.*\}', raw_text, re.DOTALL)
         if match:
-            return json.loads(match.group(0).strip())
+            return format_result(json.loads(match.group(0).strip()), source="claude")
         return {"raw_response": raw_text}
     except json.JSONDecodeError:
         return {"raw_response": raw_text}
