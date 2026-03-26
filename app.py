@@ -49,43 +49,19 @@ class ImageInput(BaseModel):
     image: str
 
 # ── Prompt ────────────────────────────────────────────────────────────────────
-ANALYSIS_PROMPT = """Eres un experto en redes de fibra óptica analizando una imagen de un nodo ATP (caja de distribución de fibra).
+ANALYSIS_PROMPT = """Eres un experto en redes de fibra óptica analizando un nodo ATP.
 
-CONTEXTO CRÍTICO - cómo se ven los puertos:
-Los nodos ATP tienen dos tipos de elementos verdes que PARECEN similares pero son muy distintos:
+DIFERENCIA CLAVE entre los dos elementos verdes que verás:
+- TAPA PROTECTORA (DISPONIBLE): pieza de plástico verde sólida, cuadrada, sin ningún cable. Solo tapa el puerto.
+- CONECTOR SC/APC ACTIVO (OCUPADO): tiene un cable de fibra delgado (1-2mm, colores: amarillo, azul, naranja) entrando por detrás. Si ves cable → OCUPADO.
 
-1. TAPA PROTECTORA (puerto DISPONIBLE):
-   - Pieza de plástico verde SÓLIDA, cuadrada o rectangular
-   - NO tiene ningún cable saliendo
-   - Es completamente plana/maciza por delante
-   - Se encaja dentro del adaptador como un capuchón ciego
+REGLA: Solo marca OCUPADO si claramente ves un cable conectado. En duda → DISPONIBLE.
 
-2. CONECTOR SC/APC ACTIVO (puerto OCUPADO):
-   - Tiene un cable de fibra óptica (pigtail) que ENTRA por la parte trasera/lateral
-   - El cable es delgado (1-2mm) con revestimiento de colores (amarillo, azul, naranja, blanco, etc.)
-   - Se puede ver el cable ANTES de entrar al conector
-   - La diferencia visual: tiene un cable conectado a él
+Piensa en voz alta sobre cada puerto, luego al final escribe el resultado entre estas etiquetas exactas:
 
-FASE 1 - INVENTARIO:
-Describe brevemente la caja, total de puertos visibles y etiqueta/código.
-
-FASE 2 - ANÁLISIS PUERTO POR PUERTO:
-Para cada puerto de izquierda a derecha, escribe:
-Puerto X: [¿Ves algún cable conectado a él? Describe color y forma de lo que ves] → OCUPADO / DISPONIBLE
-
-IMPORTANTE: La mayoría de puertos en campo tienen TAPAS PROTECTORAS. Solo clasifica como OCUPADO si claramente ves un cable de fibra conectado. En caso de duda → DISPONIBLE.
-
-FASE 3 - JSON:
-Basándote SOLO en los puertos donde viste cable conectado, devuelve:
-<json>
-{
-  "total_ports": <total de puertos en la caja>,
-  "available_ports": [<puertos SIN cable: tapas protectoras o vacíos>],
-  "occupied_ports": [<puertos CON cable de fibra visible conectado>],
-  "technical_reference": "<código de etiqueta del nodo, o null>",
-  "observations": "<descripción de lo que viste en cada puerto que clasificaste como ocupado>"
-}
-</json>"""
+<resultado>
+{"total_ports": X, "available_ports": [lista], "occupied_ports": [lista]}
+</resultado>"""
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 @app.get("/")
@@ -156,19 +132,22 @@ async def analyze_image(data: ImageInput):
 
     # Parsear JSON
     try:
-        # Buscar JSON dentro de <json>...</json>
-        json_match = re.search(r'<json>\s*(.*?)\s*</json>', raw_text, re.DOTALL)
-        if json_match:
-            result = json.loads(json_match.group(1))
-        else:
-            # Fallback: limpiar markdown y parsear directamente
-            cleaned = raw_text
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("```")[1]
-                if cleaned.startswith("json"):
-                    cleaned = cleaned[4:]
-            result = json.loads(cleaned.strip())
-        return result
+        # 1. Buscar dentro de <resultado>...</resultado>
+        match = re.search(r'<resultado>\s*(.*?)\s*</resultado>', raw_text, re.DOTALL)
+        if match:
+            return json.loads(match.group(1).strip())
+
+        # 2. Buscar bloque ```json ... ``` en cualquier parte del texto
+        match = re.search(r'```json\s*(.*?)\s*```', raw_text, re.DOTALL)
+        if match:
+            return json.loads(match.group(1).strip())
+
+        # 3. Buscar primer { ... } válido
+        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
+        if match:
+            return json.loads(match.group(0).strip())
+
+        return {"raw_response": raw_text}
     except json.JSONDecodeError:
         return {"raw_response": raw_text}
 
