@@ -209,21 +209,28 @@ async def analyze_image(data: ImageInput):
         raise HTTPException(502, f"Error en Claude: {str(e)}")
 
     # 4. Parsear JSON
+    parsed = None
     try:
-        match = re.search(r'\{.*\}', raw_text, re.DOTALL)
-        if match:
-            parsed = json.loads(match.group(0).strip())
-            confidence = parsed.get("confidence", 100)
-            if confidence < 70:
-                return {
-                    "error": "image_unclear",
-                    "message": "La imagen no es suficientemente clara. Por favor tome una nueva foto más cerca del nodo, con buena iluminación y sin obstrucciones.",
-                    "confidence": confidence
-                }
-            return format_result(parsed, source="claude")
-        return {"raw_response": raw_text}
+        parsed = json.loads(raw_text.strip())
     except json.JSONDecodeError:
+        match = re.search(r'\{[\s\S]*\}', raw_text)
+        if match:
+            try:
+                parsed = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                pass
+
+    if parsed is None:
         return {"raw_response": raw_text}
+
+    confidence = parsed.get("confidence", 100)
+    if confidence < 70:
+        return {
+            "error": "image_unclear",
+            "message": "La imagen no es suficientemente clara. Por favor tome una nueva foto más cerca del nodo, con buena iluminación y sin obstrucciones.",
+            "confidence": confidence
+        }
+    return format_result(parsed, source="claude")
 
 
 @app.post("/api/feedback")
