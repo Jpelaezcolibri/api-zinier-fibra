@@ -112,26 +112,30 @@ def get_recent_corrections(limit: int = 5):
 BASE_PROMPT = """Eres un experto en redes de fibra óptica. Analiza esta imagen de un nodo ATP.
 
 CÓMO IDENTIFICAR EL ESTADO DE CADA PUERTO:
-- OCUPADO: tiene un conector SC/APC insertado (cilíndrico, verde) con una fibra óptica (cable delgado) saliendo por la parte trasera. Busca el cable que sale del adaptador.
-- DISPONIBLE: tiene solo una tapa protectora plana de plástico. Sin cable. Solo plástico sólido tapando el puerto.
-
-REGLA CLAVE: si ves un cable de fibra conectado al puerto → OCUPADO. Si solo hay tapa plástica sin cable → DISPONIBLE.
+- OCUPADO: conector SC/APC cilíndrico con cable de fibra óptica saliendo de él
+- DISPONIBLE: tapa protectora plana de plástico sin cable, o puerto vacío
+- REGLA: si ves cable saliendo del adaptador → OCUPADO. Solo tapa plástica → DISPONIBLE.
 
 Numera los puertos de izquierda a derecha empezando en 1.
 {ejemplos}
+Evalúa qué tan clara está la imagen (0-100):
+- 90-100: imagen nítida, puertos perfectamente visibles
+- 70-89: imagen aceptable, algunos puertos con dudas menores
+- < 70: imagen poco clara, borrosa o con obstrucciones
+
 Responde ÚNICAMENTE con este JSON (sin texto adicional, sin markdown):
-{{"total_ports": X, "available_ports": [lista], "occupied_ports": [lista]}}"""
+{{"total_ports": X, "available_ports": [lista], "occupied_ports": [lista], "confidence": N}}"""
 
 def build_prompt() -> str:
     corrections = get_recent_corrections()
     if not corrections:
         return BASE_PROMPT.replace("{ejemplos}", "")
 
-    lines = "\nCORRECCIONES PREVIAS (casos reales ya resueltos - aprende de ellos):\n"
+    lines = "\nLECCIONES DE IMÁGENES ANTERIORES (son de OTRAS imágenes, no de esta — aprende el patrón visual, no los números):\n"
     for c in corrections:
-        cr = json.dumps(c["correct_result"])
-        note = f" | Nota: {c['notes']}" if c.get("notes") else ""
-        lines += f"- Resultado correcto: {cr}{note}\n"
+        note = c.get("notes", "")
+        if note:
+            lines += f"- Lección: \"{note}\" → cable saliendo = OCUPADO, tapa plana sin cable = DISPONIBLE.\n"
     lines += "\n"
     return BASE_PROMPT.replace("{ejemplos}", lines)
 
@@ -208,7 +212,15 @@ async def analyze_image(data: ImageInput):
     try:
         match = re.search(r'\{.*\}', raw_text, re.DOTALL)
         if match:
-            return format_result(json.loads(match.group(0).strip()), source="claude")
+            parsed = json.loads(match.group(0).strip())
+            confidence = parsed.get("confidence", 100)
+            if confidence < 70:
+                return {
+                    "error": "image_unclear",
+                    "message": "La imagen no es suficientemente clara. Por favor tome una nueva foto más cerca del nodo, con buena iluminación y sin obstrucciones.",
+                    "confidence": confidence
+                }
+            return format_result(parsed, source="claude")
         return {"raw_response": raw_text}
     except json.JSONDecodeError:
         return {"raw_response": raw_text}
