@@ -73,9 +73,7 @@ def format_result(data: dict, source: str = None) -> dict:
     return result
 
 class FeedbackInput(BaseModel):
-    image_url: str
-    correct_result: dict
-    notes: str = None
+    pattern: str
 
 # ── Supabase helpers ──────────────────────────────────────────────────────────
 def check_known_image(image_url: str):
@@ -94,18 +92,19 @@ def check_known_image(image_url: str):
         logger.warning(f"Error verificando imagen conocida: {e}")
     return None
 
-def get_recent_corrections(limit: int = 5):
-    """Obtiene las últimas correcciones para usarlas como ejemplos en el prompt."""
+def get_visual_patterns():
+    """Obtiene los patrones visuales aprendidos para inyectarlos en el prompt."""
     if not supabase_client:
         return []
     try:
-        result = supabase_client.table("port_corrections") \
-            .select("image_url, correct_result, notes") \
+        result = supabase_client.table("visual_patterns") \
+            .select("pattern") \
+            .eq("active", True) \
             .order("created_at", desc=True) \
-            .limit(limit).execute()
-        return result.data or []
+            .limit(10).execute()
+        return [r["pattern"] for r in (result.data or [])]
     except Exception as e:
-        logger.warning(f"Error obteniendo correcciones: {e}")
+        logger.warning(f"Error obteniendo patrones visuales: {e}")
         return []
 
 # ── Prompt builder ────────────────────────────────────────────────────────────
@@ -127,15 +126,13 @@ Responde ÚNICAMENTE con este JSON (sin texto adicional, sin markdown):
 {{"total_ports": X, "available_ports": [lista], "occupied_ports": [lista], "confidence": N}}"""
 
 def build_prompt() -> str:
-    corrections = get_recent_corrections()
-    if not corrections:
+    patterns = get_visual_patterns()
+    if not patterns:
         return BASE_PROMPT.replace("{ejemplos}", "")
 
-    lines = "\nLECCIONES DE IMÁGENES ANTERIORES (son de OTRAS imágenes, no de esta — aprende el patrón visual, no los números):\n"
-    for c in corrections:
-        note = c.get("notes", "")
-        if note:
-            lines += f"- Lección: \"{note}\" → cable saliendo = OCUPADO, tapa plana sin cable = DISPONIBLE.\n"
+    lines = "\nREGLAS APRENDIDAS EN CAMPO (validadas por técnicos reales — aplica a cualquier imagen):\n"
+    for p in patterns:
+        lines += f"- {p}\n"
     lines += "\n"
     return BASE_PROMPT.replace("{ejemplos}", lines)
 
@@ -236,36 +233,32 @@ async def analyze_image(data: ImageInput):
 @app.post("/api/feedback")
 async def submit_feedback(data: FeedbackInput):
     """
-    Corrige el resultado de una imagen para que la API aprenda.
+    Enseña a la API un patrón visual aprendido en campo.
     Ejemplo:
     {
-      "image_url": "https://i.postimg.cc/fRj9f6LG/...",
-      "correct_result": {"total_ports": 8, "available_ports": [1,2,3,4,6,7,8], "occupied_ports": [5]},
-      "notes": "El puerto 5 tenía cable activo, los demás solo tenían tapas protectoras verdes"
+      "pattern": "Los puertos ocupados tienen un conector SC/APC verde brillante con cable de fibra saliendo por detrás. Las tapas protectoras son plástico opaco plano sin ningún cable."
     }
     """
     if not supabase_client:
-        raise HTTPException(503, "Supabase no configurado. Agrega SUPABASE_URL y SUPABASE_SERVICE_ROLE_KEY en Render.")
+        raise HTTPException(503, "Supabase no configurado.")
     try:
-        supabase_client.table("port_corrections").upsert({
-            "image_url": data.image_url,
-            "correct_result": data.correct_result,
-            "notes": data.notes
-        }, on_conflict="image_url").execute()
-        return {"status": "ok", "message": "Corrección guardada. La API recordará esta imagen y usará el ejemplo para futuras imágenes similares."}
+        supabase_client.table("visual_patterns").insert({
+            "pattern": data.pattern
+        }).execute()
+        return {"status": "ok", "message": "Patrón guardado. La API usará esta regla visual en todos los análisis futuros."}
     except Exception as e:
-        raise HTTPException(500, f"Error guardando corrección: {str(e)}")
+        raise HTTPException(500, f"Error guardando patrón: {str(e)}")
 
 
-@app.get("/api/corrections")
-async def list_corrections():
-    """Lista todas las correcciones guardadas."""
+@app.get("/api/patterns")
+async def list_patterns():
+    """Lista todos los patrones visuales aprendidos."""
     if not supabase_client:
         raise HTTPException(503, "Supabase no configurado.")
     try:
-        result = supabase_client.table("port_corrections") \
+        result = supabase_client.table("visual_patterns") \
             .select("*").order("created_at", desc=True).execute()
-        return {"total": len(result.data), "corrections": result.data}
+        return {"total": len(result.data), "patterns": result.data}
     except Exception as e:
         raise HTTPException(500, f"Error: {str(e)}")
 
